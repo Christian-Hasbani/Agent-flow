@@ -3,6 +3,11 @@ from typing import Optional, Literal, Dict, Any
 from datetime import datetime
 
 
+class RetryResponse(BaseModel):
+    deleted_run_id: UUID4
+    last_user_message: str
+
+
 class MessageCreate(BaseModel):
     conversation_id: UUID4
     role: Literal["user", "agent"]
