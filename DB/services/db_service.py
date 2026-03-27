@@ -413,3 +413,62 @@ def delete_messages_by_conversation(conversation_id: str):
             Message.conversation_id == uuid.UUID(conversation_id)
         ).delete()
         s.commit()
+
+
+def retry_last_run(conversation_id: str) -> dict | None:
+    """Delete all messages belonging to the most recent run in the conversation.
+
+    Returns a dict with ``deleted_run_id`` and ``last_user_message`` so the
+    caller knows which prompt to resubmit.  Returns ``None`` when the
+    conversation has no run to retry (e.g. no agent messages with a run_id).
+    """
+    with _session() as s:
+        # Find the most recent run_id (agent messages always carry a run_id)
+        last_agent_msg = (
+            s.query(Message)
+            .filter(
+                Message.conversation_id == uuid.UUID(conversation_id),
+                Message.run_id.isnot(None),
+            )
+            .order_by(Message.sequence_order.desc())
+            .first()
+        )
+        if not last_agent_msg:
+            return None
+
+        run_id = last_agent_msg.run_id
+
+        # Find the first message of this run to determine its position
+        first_run_msg = (
+            s.query(Message)
+            .filter(
+                Message.conversation_id == uuid.UUID(conversation_id),
+                Message.run_id == run_id,
+            )
+            .order_by(Message.sequence_order)
+            .first()
+        )
+
+        # Find the user message immediately before this run started
+        last_user_msg = (
+            s.query(Message)
+            .filter(
+                Message.conversation_id == uuid.UUID(conversation_id),
+                Message.role == "user",
+                Message.sequence_order < first_run_msg.sequence_order,
+            )
+            .order_by(Message.sequence_order.desc())
+            .first()
+        )
+
+        if not last_user_msg:
+            return None
+
+        # Delete only the messages belonging to this run in this conversation
+        s.query(Message).filter(
+            Message.conversation_id == uuid.UUID(conversation_id),
+            Message.run_id == run_id,
+        ).delete()
+        s.commit()
+
+        return {"deleted_run_id": run_id, "last_user_message": last_user_msg.content}

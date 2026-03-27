@@ -8,6 +8,7 @@ import db_service
 
 from DTO import (
     ConversationCreate, ConversationUpdate, ConversationResponse,
+    RetryResponse,
 )
 
 router = APIRouter(prefix="/conversations", tags=["Conversations"])
@@ -48,3 +49,19 @@ def delete_conversation(conversation_id: str):
     deleted = db_service.delete_conversation(conversation_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+
+@router.post("/{conversation_id}/retry", response_model=RetryResponse)
+def retry_conversation(conversation_id: str):
+    """Delete messages from the most recent run and return the prompt to resubmit."""
+    conversation = db_service.get_conversation(conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    result = db_service.retry_last_run(conversation_id)
+    if not result:
+        raise HTTPException(
+            status_code=409,
+            detail="No retryable run found in this conversation",
+        )
+    return RetryResponse(**result)
